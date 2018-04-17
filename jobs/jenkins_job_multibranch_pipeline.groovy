@@ -14,6 +14,10 @@
    limitations under the License.
    */
 
+import hudson.util.DescribableList
+import hudson.util.XStream2
+import jenkins.model.Jenkins
+
 //this code should be at the beginning of every script included which requires bindings
 require_bindings('jobs/jenkins_job_multibranch_pipeline.groovy', ['parent_job', 'project', 'project_folder', 'project_name', 'script_approval', 'git_service'])
 
@@ -89,6 +93,17 @@ jenkinsJobMultibranchPipeline = { String JERVIS_BRANCH ->
             }
             traits[0].children().add 0, 'org.jenkinsci.plugins.github__branch__source.OriginPullRequestDiscoveryTrait' { strategyId('1') }
             traits[0].children().add 0, 'org.jenkinsci.plugins.github__branch__source.BranchDiscoveryTrait' { strategyId('3') }
+        }
+        println "test1 ${project}"
+        if(Jenkins.instance.getItemByFullName(project)) {
+            println "test2 ${project}"
+            XStream2 xs = new XStream2()
+            xs.alias('properties', DescribableList.class)
+            String xml = xs.toXML(Jenkins.instance.getItemByFullName('samrocketman/jervis').properties)
+            println xml
+            configure {
+                it / xml
+            }
         }
         /* not necessary but leaving for now
         configure {

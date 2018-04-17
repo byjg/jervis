@@ -44,6 +44,7 @@ parent_job = this
 evaluate(readFileFromWorkspace('jobs/git_service.groovy').toString())
 evaluate(readFileFromWorkspace('jobs/global_threadlock.groovy').toString())
 evaluate(readFileFromWorkspace('jobs/get_folder_credentials.groovy').toString())
+evaluate(readFileFromWorkspace('jobs/preserved_xml.groovy').toString())
 
 //prepare bindings from other files (order matters due to bindings loaded from other scripts)
 evaluate(readFileFromWorkspace('jobs/is_pipeline.groovy').toString())
