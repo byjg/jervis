@@ -22,7 +22,15 @@
                     "python",
                     "jdk"
                 ]
-            }
+	    },
+     	    "debian8": {
+                "language": [
+                    "angular4"
+                ],
+                "toolchain": [
+                    "env"
+                ]
+	    }
         }
     },
     "restrictions": {}

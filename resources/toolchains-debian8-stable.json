@@ -1,0 +1,12 @@
+{
+    "toolchains": {
+        "angular4": ["env"]
+    },
+    "env": {
+        "matrix": "advanced",
+        "*": [
+            "export ${jervis_toolchain_ivalue}"
+        ]
+    }
+}
+
