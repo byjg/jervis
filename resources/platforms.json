@@ -1,37 +1,40 @@
 {
-    "defaults": {
-        "platform": "docker",
-        "os": "ubuntu1604",
-        "stability": "stable",
-        "sudo": "sudo"
-    },
-    "supported_platforms": {
-        "docker": {
-            "ubuntu1604": {
-                "language": [
-                    "groovy",
-                    "java",
-                    "python",
-                    "ruby",
-                    "shell"
-                ],
-                "toolchain": [
-                    "env",
-                    "gemfile",
-                    "rvm",
-                    "python",
-                    "jdk"
-                ]
-	    },
-     	    "debian8": {
-                "language": [
-                    "angular4"
-                ],
-                "toolchain": [
-                    "env"
-                ]
-	    }
-        }
-    },
-    "restrictions": {}
+   "defaults":{
+      "platform":"docker",
+      "os":"ubuntu1604",
+      "stability":"stable",
+      "sudo":"sudo"
+   },
+   "supported_platforms":{
+      "docker":{
+         "ubuntu1604":{
+            "language":[
+               "groovy",
+               "java",
+               "python",
+               "ruby",
+               "shell"
+            ],
+            "toolchain":[
+               "env",
+               "gemfile",
+               "rvm",
+               "python",
+               "jdk"
+            ]
+         },
+         "debian8":{
+            "language":[
+               "angular4"
+            ],
+            "toolchain":[
+               "env"
+            ]
+         }
+      }
+   },
+   "restrictions":{
+
+   }
 }
+
