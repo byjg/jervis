@@ -29,6 +29,7 @@ import hudson.util.Secret
 import jenkins.bouncycastle.api.PEMEncodable
 import jenkins.model.Jenkins
 import org.jenkinsci.plugins.workflow.libs.LibraryAdder
+import org.yaml.snakeyaml.Yaml
 import static jenkins.bouncycastle.api.PEMEncodable.decode
 
 /**
@@ -80,7 +81,19 @@ List getJervisMetaData(String project, String JERVIS_BRANCH) {
     else {
         throw new FileNotFoundException('Cannot find .jervis.yml nor .travis.yml')
     }
-    [jervis_yaml, folder_listing]
+   def jervis_dict = new Yaml().load(jervis_yaml)
+   Map jervis_yamls_map = [ 'main': jervis_yaml]
+   if('jervis' in jervis_dict.keySet()){
+      echo "Child yaml map found"
+      for(String component_name : jervis_dict['jervis'].keySet()) {
+         echo "New sub .jervis.yml found for component ${component_name} located at ${jervis_dict['jervis'][component_name]}"
+         jervis_yamls_map[component_name] = git_service.getFile(project, jervis_dict['jervis'][component_name], JERVIS_BRANCH)
+      }
+   }
+   else{
+      echo "No child yaml was found"
+   }
+    [folder_listing, jervis_yamls_map]
 }
 
 
@@ -116,6 +129,11 @@ String getFolderRSAKeyCredentials(String folder, String credentials_id) {
     return found_credentials
 }
 
+def shouldSkipBuildDeploy(String component_name ) {
+   checkout scm
+      
+   
+}
 
 /**
   An environment wrapper which sets environment variables.  If available, also
@@ -153,55 +171,37 @@ String printDecryptedProperties(lifecycleGenerator generator, String credentials
     ].join('\n') as String
 }
 
-/**
-  Process default publishable items provided by this script.
- */
-def processDefaultPublishable(def item, String publishable, boolean is_pull_request) {
-    if(is_pull_request && ('skip_on_pr' in item) && (item['skip_on_pr'] in Boolean) && item['skip_on_pr']) {
-        echo "Skip publishing ${publishable} for pull request."
-        //skip because we shouldn't publish on a pull request
-        return
+def call() {
+   
+    String github_org
+    String github_repo
+    String github_domain
+    List folder_listing = []
+    Map jervis_yamls = [:]
+    BRANCH_NAME = env.CHANGE_BRANCH?:env.BRANCH_NAME
+    boolean is_pull_request = (env.CHANGE_ID?:false) as Boolean
+    env.IS_PR_BUILD = "${is_pull_request}" as String
+    currentBuild.rawBuild.parent.parent.sources[0].source.with {
+        github_org = it.repoOwner
+        github_repo = it.repository
+        github_domain = (it.apiUri)? it.apiUri.split('/')[2] : 'github.com'
     }
-    switch(publishable) {
-        case 'artifacts':
-            archiveArtifacts artifacts: item['path'], fingerprint: true,
-                             excludes: item['excludes'],
-                             allowEmptyArchive: item['allowEmptyArchive'],
-                             defaultExcludes: item['defaultExcludes'],
-                             caseSensitive: item['caseSensitive']
-            break
-        case 'cobertura':
-            cobertura coberturaReportFile: item['path'],
-                      autoUpdateHealth: item['autoUpdateHealth'],
-                      autoUpdateStability: item['autoUpdateStability'],
-                      failNoReports: item['failNoReports'],
-                      failUnhealthy: item['failUnhealthy'],
-                      failUnstable: item['failUnstable'],
-                      maxNumberOfBuilds: item['maxNumberOfBuilds'],
-                      onlyStable: item['onlyStable'],
-                      sourceEncoding: item['sourceEncoding'],
-                      zoomCoverageChart: item['zoomCoverageChart'],
-                      methodCoverageTargets: item['methodCoverageTargets'],
-                      lineCoverageTargets: item['lineCoverageTargets'],
-                      conditionalCoverageTargets: item['conditionalCoverageTargets']
-            break
-        case 'html':
-            publishHTML allowMissing: item['allowMissing'],
-                        alwaysLinkToLastBuild: item['alwaysLinkToLastBuild'],
-                        includes: item['includes'],
-                        keepAll: item['keepAll'],
-                        reportDir: item['path'],
-                        reportFiles: item['reportFiles'],
-                        reportName: item['reportName'],
-                        reportTitles: item['reportTitles']
-            break
-        case 'junit':
-            junit allowEmptyResults: item['allowEmptyResults'],
-                  healthScaleFactor: item['healthScaleFactor'],
-                  keepLongStdio: item['keepLongStdio'],
-                  testResults: item['path']
-            break
-    }
+    List jervis_metadata = getJervisMetaData("${github_org}/${github_repo}".toString(), BRANCH_NAME)
+    jervis_yamls = jervis_metadata[1]
+    folder_listing = jervis_metadata[0]
+    Map jervis_tasks = [failFast: true]
+    
+    jervis_yamls.keySet().each{
+       component_name -> 
+          jervis_tasks[component_name] = { 
+            node('jervis_generator'){
+            stage("Forking pipeline for component") {
+              buildViaJervis(jervis_yamls[component_name],folder_listing,component_name)
+            }
+           }
+        }
+      }
+      parallel(jervis_tasks)
 }
 
 /**
@@ -220,7 +220,7 @@ String loadCustomResource(String resource) {
 /**
   The main method of buildViaJervis()
  */
-def call() {
+def buildViaJervis(String jervis_yaml, List folder_listing, String component_name) {
     def generator = new lifecycleGenerator()
     def pipeline_generator
     String environment_string
@@ -228,15 +228,12 @@ def call() {
     String github_org
     String github_repo
     String jenkins_folder
-    String jervis_yaml
     String lifecycles_json
     String os_stability
     String platforms_json
     String script_footer
     String script_header
     String toolchains_json
-    Map build_meta = [:]
-    List folder_listing = []
     BRANCH_NAME = env.CHANGE_BRANCH?:env.BRANCH_NAME
     boolean is_pull_request = (env.CHANGE_ID?:false) as Boolean
     env.IS_PR_BUILD = "${is_pull_request}" as String
@@ -257,7 +254,7 @@ def call() {
         "JERVIS_BRANCH=${BRANCH_NAME}",
         "IS_PR_BUILD=${is_pull_request}"
     ]
-
+      
     def global_scm = scm
 
     //build metadata to pass on to user defined methods
@@ -276,9 +273,6 @@ def call() {
         }
         platforms_json = loadCustomResource 'platforms.json'
         generator.loadPlatformsString(platforms_json)
-        List jervis_metadata = getJervisMetaData("${github_org}/${github_repo}".toString(), BRANCH_NAME)
-        jervis_yaml = jervis_metadata[0]
-        folder_listing = jervis_metadata[1]
         generator.preloadYamlString(jervis_yaml)
         os_stability = "${generator.label_os}-${generator.label_stability}"
         lifecycles_json = loadCustomResource "lifecycles-${os_stability}.json"
@@ -327,6 +321,26 @@ def call() {
                 node(label) {
                     stage("Checkout SCM") {
                         checkout global_scm
+                        currentBuild.changeSets.each{ 
+                           changeset -> changeset.each{ 
+                              change -> 
+                              if(change.comment.contains('[ci ')) {
+                                 def ci_hint_list = change.comment.contains.split('[ci ')[1].split(']')[0].split(' ')
+                                 for (ci_hint in ci_hint_list){
+                                    switch (ci_hint) {
+                                                  case ~/^filter\.except.*$/:
+                                                      componentExcept += ci_hint.split('=')[1].split(',')
+                                                      break
+                                                  case ~/^filter\.only.*$/:
+                                                      componentOnly += ci_hint.split('=')[1].split(',')
+                                                      break
+                                                  default:
+                                                      break
+                                                  }   
+                                              }
+                                        }
+                                 }
+                              }
                     }
                     stage("Build axis ${stageIdentifier}") {
                         Boolean failed_stage = false
@@ -369,8 +383,77 @@ def call() {
         if(!generator.isMatrixBuild()) {
             Map stashMap = pipeline_generator.stashMap
             stage("Checkout SCM") {
-                checkout global_scm
+               checkout global_scm
+               testfoo = checkout global_scm
+               testbar = checkout scm
+               echo testfoo.dump()
+               echo testbar.dump()
+          
+                List componentOnly = []
+                List componentExcept = []
+               echo "currentBuild=" + currentBuild.dump()
+               
+               def changeLogSets = currentBuild.rawBuild.changeSets
+               for (int i = 0; i < changeLogSets.size(); i++) {
+                   def entries = changeLogSets[i].items
+                   for (int j = 0; j < entries.length; j++) {
+                       def entry = entries[j]
+                       echo "${entry.commitId} by ${entry.author} on ${new Date(entry.timestamp)}: ${entry.msg}"
+                       def files = new ArrayList(entry.affectedFiles)
+                       for (int k = 0; k < files.size(); k++) {
+                           def file = files[k]
+                           echo "  ${file.editType.name} ${file.path}"
+                       }
+                   }
+}
+               
+               
+               
+                currentBuild.changeSets.each{ 
+                    changeset -> changeset.each{ 
+                    change -> 
+                       echo "change.comment=${change.comment}"
+                       echo change.dump()
+                    if(change.comment.contains('[ci ')) {
+                        def ci_hint_list = change.comment.split('[ci ')[1].split(']')[0].split(' ')
+                        echo "CI HINT FOUND >>>>>>>>>>>>>>>>>" + ci_hint_list.dump()
+
+                        hint_loop:
+                        for (ci_hint in ci_hint_list){
+                            switch (ci_hint) {
+                                        case ~/^filter\.except.*$/:
+                                            componentExcept += ci_hint.split('=')[1].split(',')
+                                            break
+                                        case ~/^filter\.only.*$/:
+                                            componentOnly += ci_hint.split('=')[1].split(',')
+                                            break
+                                        case ~/^filter\.reset.*$/:
+                                            componentOnly.clear()
+                                            componentExcept.clear()
+                                            break hint_loop
+                                        default:
+                                            break
+                                        }   
+                                    }
+                                }
+                            }
+                        }
+               echo "component_name=${component_name}"
+               echo "componentExcept=${componentExcept}"
+               echo "componentOnly=${componentOnly}"
+                if (component_name in componentExcept ||
+                      (componentOnly && !(component_name in componentOnly)) ) {
+                        echo "Component ${component_name} build and deploy SKIPPED due to git commit hint filter"
+                        currentBuild.result = 'SUCCESS'
+                        exit 0  
+                 }
+                 else{
+                   echo "Component ${component_name} not affected by ci hint filters. Proceeding build and deploy"
+                 }
+
             }
+
+           
             stage("Build Project") {
                 withEnvSecretWrapper(pipeline_generator, jervisEnvList) {
                     environment_string = sh(script: 'env | LC_ALL=C sort', returnStdout: true).split('\n').join('\n    ')
