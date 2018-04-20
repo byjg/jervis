@@ -241,6 +241,20 @@ pipeline_generator.stashMap['html']['includes']</tt></pre>
             //append the items to collect to the end of the list of stashes (overrides prior entries)
             this.stashes += this.collect_items.collect { k, v ->
                 [name: k, includes: v]
+                /*
+                if((k in stashmap_preprocessor) && (getPublishable(k) in Map)) {
+                    if(!(value in String)) {
+                        throw new PipelineGeneratorException("stashmap_preprocessor for collect item '${k}' must return a String but does not.  This issue can only be resolved by an admin of the pipeline shared library.")
+                    }
+                    println "value is ${value}"
+                    return [
+                        name: k,
+                        includes: value,
+                    ]
+                }
+                else {
+                    return [name: k, includes: v]
+                }*/
             }
         }
     }
@@ -302,30 +316,28 @@ pipeline_generator.stashMap['html']['includes']</tt></pre>
                     getObjectValue(s, 'includes', '') &&
                     (!isMatrix || getObjectValue(s, 'matrix_axis', [:])) &&
                     (!isMatrix || (getObjectValue(s, 'matrix_axis', [:]) == convertMatrixAxis(matrix_axis)))) {
-                String name = getObjectValue(s, 'name', '')
-                String includes = getObjectValue(s, 'includes', '')
-                if((name in stashmap_preprocessor) && (getPublishable(name) in Map)) {
-                    def result
-                    try {
-                        result = stashmap_preprocessor[name](getPublishable(name))
+                    String name = getObjectValue(s, 'name', '')
+                    String includes = getObjectValue(s, 'includes', '')
+                    if((name in stashmap_preprocessor) && (getPublishable(name) in Map)) {
+                        def result
+                        try {
+                            result = stashmap_preprocessor[name](getPublishable(name))
+                        }
+                        catch(Exception e) {
+                            throw new PipelineGeneratorException("stashmap_preprocessor for collect item '${name}' must return a String but does not.  This issue can only be resolved by an admin of the pipeline shared library.\nSTART Preprocessor Exception:\n${e.toString()}\n    ${e.getStackTrace()*.toString().join('\n    ')}\n\nEND Preprocessor Exception")
+                        }
+                        if(!(result in String)) {
+                            throw new PipelineGeneratorException("stashmap_preprocessor for collect item '${name}' must return a String but does not.  This issue can only be resolved by an admin of the pipeline shared library.")
+                        }
+                        includes = result
                     }
-                    catch(Exception e) {
-                        throw new PipelineGeneratorException("stashmap_preprocessor for collect item '${name}' must return a String but does not.  This issue can only be resolved by an admin of the pipeline shared library.\nSTART Preprocessor Exception:\n${e.toString()}\n    ${e.getStackTrace()*.toString().join('\n    ')}\n\nEND Preprocessor Exception")
-                    }
-                    if(!(result in String)) {
-                        throw new PipelineGeneratorException("stashmap_preprocessor for collect item '${name}' must return a String but does not.  This issue can only be resolved by an admin of the pipeline shared library.")
-                    }
-                    includes = result
-                }
-                if(isCollectUserInputValid(name, 'path', includes)) {
-                    stash_map[name] = [
-                        'includes': includes,
-                        'excludes': getObjectValue(s, 'excludes', ''),
-                        'use_default_excludes': getObjectValue(s, 'use_default_excludes', true),
-                        'allow_empty': getObjectValue(s, 'allow_empty', false),
-                        'matrix_axis': getObjectValue(s, 'matrix_axis', [:])
+                stash_map[name] = [
+                    'includes': includes,
+                    'excludes': getObjectValue(s, 'excludes', ''),
+                    'use_default_excludes': getObjectValue(s, 'use_default_excludes', true),
+                    'allow_empty': getObjectValue(s, 'allow_empty', false),
+                    'matrix_axis': getObjectValue(s, 'matrix_axis', [:])
                     ]
-                }
             }
         }
         stash_map
@@ -382,7 +394,8 @@ pipeline_generator.stashMap['html']['includes']</tt></pre>
         if(!supported_collections) {
             throw new PipelineGeneratorException('Calling getPublishableItems() without setting supported_collections.  This issue can only be resolved by an admin of the pipeline shared library.')
         }
-        (supported_collections.intersect(known_items) as List).findAll { getPublishable(it) as Boolean }.sort()
+        (supported_collections.intersect(known_items) as List).sort()
+        //(supported_collections.intersect(known_items) as List).findAll { getPubishable(it) as Boolean }.sort()
     }
 
     /**
@@ -436,6 +449,9 @@ pipeline_generator.stashMap['html']['includes']</tt></pre>
                     if(k in (user_defined_collect_settings[item]?: [:])) {
                         setting = processCollectValue(getObjectValue((user_defined_collect_settings[item])?: [:], k, new Object()), k)
                     }
+                    if(!setting) {
+                        setting = v
+                    }
                 }
                 //check if user input matches admin required format (if any)
                 if(!isCollectUserInputValid(item, k, setting)) {
@@ -447,7 +463,7 @@ pipeline_generator.stashMap['html']['includes']</tt></pre>
             return isCollectUserInputValid(item, 'path', path)? tmp : [:]
         }
         else {
-            return isCollectUserInputValid(item, 'path', path)? path : ''
+            return path
         }
     }
 }
